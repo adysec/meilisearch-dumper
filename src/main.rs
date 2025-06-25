@@ -2,8 +2,8 @@ mod args;
 mod dump;
 
 use args::parse_args;
-use dump::generate_dump;
 use std::process;
+use crate::dump::generate_dump;
 
 fn main() {
     let configs = match parse_args() {
