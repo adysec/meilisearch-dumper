@@ -2,12 +2,11 @@ use crate::args::IndexConfig;
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Write, BufReader, BufRead};
 use std::path::Path;
-use tar::Builder;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use uuid::Uuid;
+use std::process::Command;
+use std::time::Instant;
 
 const DUMP_DIR: &str = "meilisearch_dump";
 
@@ -142,13 +141,37 @@ pub fn generate_dump(configs: &[IndexConfig]) -> Result<(), String> {
         });
         write_json(idx_dir.join("settings.json"), &settings)?;
         // documents.jsonl
-        let docs = serde_json::from_reader::<_, serde_json::Value>(File::open(&c.file).map_err(|e| e.to_string())?)
-            .map_err(|e| format!("读取{}失败: {}", c.file, e))?;
-        let arr = docs.as_array().ok_or("输入文件不是数组")?;
+        let file = File::open(&c.file).map_err(|e| e.to_string())?;
+        let reader = BufReader::new(file);
         let mut doc_file = BufWriter::new(File::create(idx_dir.join("documents.jsonl")).map_err(|e| e.to_string())?);
-        for doc in arr {
-            writeln!(doc_file, "{}", doc).map_err(|e| e.to_string())?;
+        let mut lines = reader.lines();
+        // 跳过第一行 [
+        lines.next();
+        let start = Instant::now();
+        let mut line_count = 0u64;
+        for line in lines {
+            let line = line.map_err(|e| e.to_string())?;
+            let trimmed = line.trim_end();
+            // 只处理以{开头且以},结尾的行
+            if trimmed.starts_with('{') && trimmed.ends_with("},") {
+                let new_line = &trimmed[..trimmed.len()-1]; // 去掉末尾逗号
+                writeln!(doc_file, "{}", new_line).map_err(|e| e.to_string())?;
+                line_count += 1;
+            }
+            // 其它行全部忽略
         }
+        doc_file.flush().map_err(|e| e.to_string())?;
+        let elapsed = start.elapsed();
+        let idx_file_path = idx_dir.join("documents.jsonl");
+        let dump_size = std::fs::metadata(&idx_file_path).map(|m| m.len()).unwrap_or(0);
+        println!(
+            "索引 {}: 处理行数: {}，dump文件大小: {:.2} MB，用时: {:.2?}，平均速度: {:.2} 行/秒",
+            c.index,
+            line_count,
+            dump_size as f64 / 1024.0 / 1024.0,
+            elapsed,
+            if elapsed.as_secs_f64() > 0.0 { line_count as f64 / elapsed.as_secs_f64() } else { 0.0 }
+        );
     }
 
     // 8. batches/queue.jsonl
@@ -205,19 +228,21 @@ pub fn generate_dump(configs: &[IndexConfig]) -> Result<(), String> {
         writeln!(tasks_file, "{}", task).map_err(|e| e.to_string())?;
     }
 
-    // 10. 打包为tar.gz
-    let tar_gz = File::create(format!("{}.dump", DUMP_DIR)).map_err(|e| e.to_string())?;
-    let enc = GzEncoder::new(tar_gz, Compression::default());
-    let mut tar = Builder::new(enc);
-    for entry in walkdir::WalkDir::new(dump_path) {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.is_file() {
-            let rel = path.strip_prefix(dump_path).unwrap();
-            tar.append_path_with_name(path, rel).map_err(|e| e.to_string())?;
-        }
+    // 10. 打包为tar.gz（集成shell命令）
+    let tar_start = Instant::now();
+    let status = Command::new("tar")
+        .arg("-czf")
+        .arg("meilisearch_dump.dump")
+        .arg("-C")
+        .arg(DUMP_DIR)
+        .arg(".")
+        .status()
+        .map_err(|e| format!("调用tar命令失败: {}", e))?;
+    if !status.success() {
+        return Err(format!("tar命令执行失败，退出码: {:?}", status.code()));
     }
-    tar.finish().map_err(|e| e.to_string())?;
+    let tar_elapsed = tar_start.elapsed();
+    println!("打包用时: {:.2?}", tar_elapsed);
     Ok(())
 }
 
