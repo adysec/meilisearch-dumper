@@ -16,7 +16,7 @@ A high-performance Rust tool for generating MeiliSearch dump files from JSON dat
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/meilisearch-dumper.git
+git clone https://github.com/adysec/meilisearch-dumper.git
 cd meilisearch-dumper
 
 # Build release version
