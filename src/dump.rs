@@ -140,25 +140,22 @@ pub fn generate_dump(configs: &[IndexConfig]) -> Result<(), String> {
             }
         });
         write_json(idx_dir.join("settings.json"), &settings)?;
-        // documents.jsonl
-        let file = File::open(&c.file).map_err(|e| e.to_string())?;
-        let reader = BufReader::new(file);
+        // documents.jsonl: 支持多个输入 JSONL 文件合并（每行一个 JSON 对象）
         let mut doc_file = BufWriter::new(File::create(idx_dir.join("documents.jsonl")).map_err(|e| e.to_string())?);
-        let mut lines = reader.lines();
-        // 跳过第一行 [
-        lines.next();
         let start = Instant::now();
         let mut line_count = 0u64;
-        for line in lines {
-            let line = line.map_err(|e| e.to_string())?;
-            let trimmed = line.trim_end();
-            // 只处理以{开头且以},结尾的行
-            if trimmed.starts_with('{') && trimmed.ends_with("},") {
-                let new_line = &trimmed[..trimmed.len()-1]; // 去掉末尾逗号
-                writeln!(doc_file, "{}", new_line).map_err(|e| e.to_string())?;
-                line_count += 1;
+        for path in &c.files {
+            let file = File::open(path).map_err(|e| e.to_string())?;
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let line = line.map_err(|e| e.to_string())?;
+                let trimmed = line.trim();
+                if trimmed.is_empty() { continue; }
+                if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                    writeln!(doc_file, "{}", trimmed).map_err(|e| e.to_string())?;
+                    line_count += 1;
+                }
             }
-            // 其它行全部忽略
         }
         doc_file.flush().map_err(|e| e.to_string())?;
         let elapsed = start.elapsed();

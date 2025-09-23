@@ -18,7 +18,7 @@ fn main() {
     println!("输出目录: meilisearch_dump");
     println!("索引和文件配对:");
     for c in &configs {
-        println!("  - 索引: {} -> 文件: {}", c.index, c.file);
+        println!("  - 索引: {} -> 文件: {}", c.index, c.files.join(", "));
         println!("    displayed: {:?}", c.displayed);
         println!("    searchable: {:?}", c.searchable);
         println!("    filterable: {:?}", c.filterable);

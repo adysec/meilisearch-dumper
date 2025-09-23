@@ -35,13 +35,64 @@ cargo build --release
 ### Basic Usage
 
 ```bash
-# Import single index
-./meilisearch-dumper --index movies --files data/movies.json
+# Import single index (JSONL)
+./meilisearch-dumper --index movies --files data/movies.jsonl
 
 # Import multiple indexes
 ./meilisearch-dumper \
-  --index movies --files data/movies.json \
-  --index books --files data/books.json
+  --index movies --files data/movies.jsonl \
+  --index books --files data/books.jsonl
+
+### Merge Multiple Files into One Index
+
+支持两种合并方式：
+
+1. 逗号分隔多个文件（同一次 `--index`）：
+
+```bash
+./meilisearch-dumper \
+  --index movies --files data/movies_part1.jsonl,data/movies_part2.jsonl
+```
+
+2. 同名 `--index` 多次出现（会合并文件，属性以最后一次为准）：
+
+```bash
+./meilisearch-dumper \
+  --index movies --files data/movies_part1.jsonl \
+  --index movies --files data/movies_part2.jsonl \
+    --displayed title,year \
+    --searchable title \
+    --filterable year
+```
+
+注意：两种方式可以混用，最终会将所有文件顺序合并到同一个 `documents.jsonl` 中。
+
+### Attribute Override Rule
+
+当同名 `--index` 多次出现时：
+- 文件会合并（先出现的文件先写入，后出现的文件追加）。
+- `--displayed` / `--searchable` / `--filterable` 以最后一次出现为准。
+
+### Tips: Why Search May Return 0 Results
+
+若未设置 `--searchable`，将写入空数组，等价于禁用文本搜索，导致 `/search` 无命中。请传入可检索字段，例如：
+
+```bash
+./meilisearch-dumper \
+  --index movies --files data/movies.jsonl \
+  --searchable title,genre
+```
+
+### Troubleshooting
+
+- Cannot connect to server after import:
+  - 确认 MeiliSearch 正在运行且监听端口（默认 7700）。
+  - 使用 `--http-addr` 指定端口并在客户端请求中对应调整。
+- Database already exists 错误：
+  - MeiliSearch 启动时指定空目录：`--db-path /tmp/ms-test`。
+  - 或删除/备份既有数据目录后再导入。
+ - 搜索无结果：
+  - 确认传入了 `--searchable` 字段，并重新导入生成的 dump。
 ```
 
 ### Advanced Usage (with Attribute Configuration)
@@ -64,30 +115,18 @@ cargo build --release
 | Parameter | Description | Required | Example |
 |-----------|-------------|----------|---------|
 | `--index` | Index name | ✅ | `movies` |
-| `--files` | Input JSON file path | ✅ | `data/movies.json` |
+| `--files` | Input JSONL file path | ✅ | `data/movies.jsonl` |
 | `--displayed` | Display attributes (comma-separated) | ❌ | `title,year,genre` |
 | `--searchable` | Searchable attributes (comma-separated) | ❌ | `title,genre` |
 | `--filterable` | Filterable attributes (comma-separated) | ❌ | `year,genre` |
 
-### Input File Format
+### Input File Format (JSONL)
 
-Input files must be JSON files containing an array of objects:
+输入文件必须为 JSON Lines（JSONL）格式：每行一个 JSON 对象，例如：
 
 ```json
-[
-  {
-    "id": 1,
-    "title": "The Shawshank Redemption",
-    "year": 1994,
-    "genre": "Drama"
-  },
-  {
-    "id": 2,
-    "title": "The Godfather",
-    "year": 1972,
-    "genre": "Crime"
-  }
-]
+{"id": 1, "title": "The Shawshank Redemption", "year": 1994, "genre": "Drama"}
+{"id": 2, "title": "The Godfather", "year": 1972, "genre": "Crime"}
 ```
 
 ## Output
@@ -208,6 +247,12 @@ cargo clippy
 Issues and Pull Requests are welcome!
 
 ## Changelog
+
+### v0.2.0
+- 更换输入为 JSONL（每行一个对象）
+- 支持 `--files` 逗号分隔多文件合并
+- 支持同名 `--index` 多次出现进行合并，属性以最后一次为准
+- 文档补充使用建议与故障排查
 
 ### v0.1.0
 - Initial release
